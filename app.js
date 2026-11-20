@@ -4,7 +4,7 @@
 
 /* ===== Réglages (le CLIENT_ID est fourni à la mise en ligne) ===== */
 const CONFIG = {
-  CLIENT_ID: "",                       // identifiant OAuth Google (application Web)
+  CLIENT_ID: "666589011481-lmckcdvh35ung8lvbsagrgbm3je65u40.apps.googleusercontent.com",                       // identifiant OAuth Google (application Web)
   FOLDER: "Mes notes",                 // dossier créé dans le Drive
   SCOPE: "https://www.googleapis.com/auth/drive.file",
 };
