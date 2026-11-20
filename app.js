@@ -242,7 +242,7 @@ $("#fileIn").addEventListener("change", async e => {
 });
 
 /* ===== Synchronisation Google Drive ===== */
-let token = null, tokenExp = 0, folderId = null, syncing = false, syncT = null, lastSync = 0, syncErr = "";
+let syncErrMsg = "", token = null, tokenExp = 0, folderId = null, syncing = false, syncT = null, lastSync = 0, syncErr = "";
 try{ const t = JSON.parse(sessionStorage.getItem("mn.tok")||"null"); if(t && t.exp > Date.now()+60e3){ token=t.tok; tokenExp=t.exp; } }catch(_){}
 const linked = () => !!localStorage.getItem("mn.linked");
 const haveToken = () => token && tokenExp > Date.now() + 60e3;
@@ -258,7 +258,7 @@ function connectDrive(silent){ if(!CONFIG.CLIENT_ID){ toast("La synchro Drive n'
   const h = new URLSearchParams(location.hash.slice(1)); history.replaceState(null, "", location.pathname);
   if(h.get("access_token")){ token=h.get("access_token"); tokenExp=Date.now()+(+h.get("expires_in")||3600)*1000;
     try{ sessionStorage.setItem("mn.tok", JSON.stringify({tok:token, exp:tokenExp})); localStorage.setItem("mn.linked","1"); }catch(_){} }
-  else if(h.get("error")) syncErr = "reconnect";
+  else if(h.get("error")){ syncErr = "reconnect"; syncErrMsg = "Google : " + h.get("error"); }
 })();
 async function api(path, opt={}){
   const r = await fetch(path.startsWith("http") ? path : "https://www.googleapis.com/" + path, {...opt, headers:{...(opt.headers||{}), Authorization:"Bearer "+token}});
@@ -310,6 +310,7 @@ async function sync(){
       let local = byDrive[f.id] || (f.appProperties && S.notes[f.appProperties.mnid]);
       if(!local && (f.appProperties||{}).kind && f.appProperties.kind!=="note") local = live().find(n=>n.kind===f.appProperties.kind && !n.driveId);
       if(local && local.driveMod === f.modifiedTime) continue;
+      if(files.length>5) status(`Réception des notes… ${seen.size}/${files.length}`, "off");
       const text = await (await api(`drive/v3/files/${f.id}?alt=media`)).text();
       const remote = fromDrive(f, text);
       if(local && local.dirty){
@@ -338,7 +339,7 @@ async function sync(){
     lastSync = Date.now(); syncErr = "";
     if(changed.length && S.main.kind==="welcome"){ newNote(); renderSide(); if(innerWidth<=520) setPane("list"); }
     else if(changed.length){ renderSide(); if(!(S.main.kind==="note"&&dirty)) { const cur=S.notes[S.main.id]; if(S.main.kind!=="note" || (cur && !cur._new && document.activeElement?.id!=="text")) renderMain(); } }
-  }catch(e){ syncErr = e.message==="auth" ? "reconnect" : "net"; }
+  }catch(e){ syncErr = e.message==="auth" ? "reconnect" : "net"; syncErrMsg = e.message; }
   syncing = false; setStatus();
 }
 function scheduleSync(){ clearTimeout(syncT); syncT = setTimeout(sync, 3000); setStatus(); }
@@ -348,7 +349,7 @@ addEventListener("online", () => { setStatus(); syncSoon(500); });
 addEventListener("offline", () => setStatus());
 
 /* ===== Ligne d'état ===== */
-function status(txt, cls){ $("#dot").className = "dot " + (cls||""); $("#status").textContent = txt; }
+function status(txt, cls){ $("#dot").className = "dot " + (cls||""); $("#status").textContent = txt; const w=$("#wStatus"); if(w) w.textContent = "État : " + txt + (syncErrMsg?" · "+syncErrMsg:""); }
 function setStatus(){
   const pending = Object.values(S.notes).filter(n => n.dirty && !n._new).length, b = $("#syncBtn");
   b.hidden = true;
@@ -374,9 +375,9 @@ function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("sho
     $("#page").innerHTML = `<h2>Bienvenue</h2><div class="hint">Ton carnet est vide sur cet appareil.<br><br>
       ${CONFIG.CLIENT_ID ? `<button class="pill primary" id="wDrive">Relier au Google Drive</button> pour retrouver tes notes.<br><br>` : ""}
       Ou <button class="pill" data-act="import">Importer le fichier de notes</button> préparé par Claude.<br><br>
-      <button class="pill" id="wNew">Commencer une note</button></div>`;
+      <button class="pill" id="wNew">Commencer une note</button><br><br><span id="wStatus"></span></div>`;
     const wd=$("#wDrive"); if(wd) wd.onclick=()=>connectDrive(false);
-    $("#wNew").onclick=()=>newNote();
+    $("#wNew").onclick=()=>newNote(); setStatus();
   }
   if(linked() && navigator.onLine && CONFIG.CLIENT_ID){
     if(haveToken()) syncSoon(300);
