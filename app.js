@@ -237,7 +237,7 @@ $("#fileIn").addEventListener("change", async e => {
   if(d.todo){ const t = todoNote(); if(!t.body.trim()){ t.body = d.todo; t.updated = Date.now(); t.dirty = true; add.push(t); } }
   for(const n of add) S.notes[n.id] = n;
   await dbPutMany(add);
-  if(d.archive && d.archive.length){ S.archive = d.archive; S.archCount = d.archive.length; await kvSet("archive", d.archive); }
+  if(d.archive && d.archive.length){ S.archive = d.archive; S.archCount = d.archive.length; await kvSet("archive", d.archive); await kvSet("archMod", "local"); syncSoon(1000); }
   toast(`${add.length} notes ajoutées${d.archive?` · archive : ${d.archive.length}`:""}`);
   renderSide(); renderMain(); setStatus(); scheduleSync();
 });
@@ -295,6 +295,27 @@ function fromDrive(f, text){
   else { n.title = kind==="codes"?"Codes":"À faire"; n.body = text; }
   return n;
 }
+/* L'archive Evernote : un seul fichier sur le Drive, chargé une fois par appareil */
+async function syncArchive(f){
+  const mod = await kvGet("archMod");
+  if(f && mod !== "local" && mod === f.modifiedTime) return;                 // déjà à jour
+  if(f && mod !== "local"){                                                   // nouvelle version sur le Drive : on la prend
+    status("Réception de l'archive Evernote…", "off");
+    const a = await (await api(`drive/v3/files/${f.id}?alt=media`)).json();
+    if(Array.isArray(a)){ await kvSet("archive", a); await kvSet("archMod", f.modifiedTime); S.archive = null; S.archCount = a.length; renderSide(); if(S.main.kind==="archive") renderMain(); }
+    return;
+  }
+  const a = (await kvGet("archive")) || [];
+  if(!a.length) return;                                                      // rien à envoyer
+  if(!f && mod && mod !== "local") return;                                    // supprimée du Drive : on n'y touche pas
+  status("Envoi de l'archive Evernote…", "off");
+  const meta = {name:"Archive Evernote.json", mimeType:"application/json", appProperties:{kind:"archive"}};
+  if(!f) meta.parents = [folderId];
+  const init = await api(`https://www.googleapis.com/upload/drive/v3/files${f?"/"+f.id:""}?uploadType=resumable&fields=id,modifiedTime`, {method: f?"PATCH":"POST", headers:{"Content-Type":"application/json; charset=UTF-8", "X-Upload-Content-Type":"application/json"}, body: JSON.stringify(f ? {} : meta)});
+  const loc = init.headers.get("Location");
+  const r = await (await fetch(loc, {method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(a)})).json();
+  if(r && r.modifiedTime) await kvSet("archMod", r.modifiedTime);
+}
 async function sync(){
   if(syncing || !navigator.onLine || !CONFIG.CLIENT_ID || !linked()) { setStatus(); return; }
   if(!haveToken()){ setStatus(); return; }
@@ -306,8 +327,10 @@ async function sync(){
     do{ const r = await (await api(`drive/v3/files?q=${q(`'${folderId}' in parents and trashed=false`)}&fields=nextPageToken,files(id,name,modifiedTime,appProperties)&pageSize=1000${pt?"&pageToken="+pt:""}`)).json(); files=files.concat(r.files||[]); pt=r.nextPageToken; } while(pt);
     const byDrive = {}; Object.values(S.notes).forEach(n => { if(n.driveId) byDrive[n.driveId]=n; });
     const seen = new Set(), changed = [];
+    let archFile = null;
     for(const f of files){
       seen.add(f.id);
+      if((f.appProperties||{}).kind==="archive"){ archFile = f; continue; }
       let local = byDrive[f.id] || (f.appProperties && S.notes[f.appProperties.mnid]);
       if(!local && (f.appProperties||{}).kind && f.appProperties.kind!=="note") local = live().find(n=>n.kind===f.appProperties.kind && !n.driveId);
       if(local && local.driveMod === f.modifiedTime) continue;
@@ -337,6 +360,7 @@ async function sync(){
       const r = await upload(n); n.driveId=r.id; n.driveMod=r.modifiedTime; n.dirty=false; await dbPut(n);
       if(out.length>20) await sleep(60);
     }
+    await syncArchive(archFile);
     lastSync = Date.now(); syncErr = "";
     if(changed.length && S.main.kind==="welcome"){ newNote(); renderSide(); if(innerWidth<=520) setPane("list"); }
     else if(changed.length){ renderSide(); if(!(S.main.kind==="note"&&dirty)) { const cur=S.notes[S.main.id]; if(S.main.kind!=="note" || (cur && !cur._new && document.activeElement?.id!=="text")) renderMain(); } }
