@@ -243,12 +243,12 @@ $("#fileIn").addEventListener("change", async e => {
 
 /* ===== Synchronisation Google Drive ===== */
 let syncErrMsg = "", token = null, tokenExp = 0, folderId = null, syncing = false, syncT = null, lastSync = 0, syncErr = "";
-try{ const t = JSON.parse(sessionStorage.getItem("mn.tok")||"null"); if(t && t.exp > Date.now()+60e3){ token=t.tok; tokenExp=t.exp; } }catch(_){}
+try{ const t = JSON.parse(localStorage.getItem("mn.tok")||"null"); if(t && t.exp > Date.now()+60e3){ token=t.tok; tokenExp=t.exp; } }catch(_){}
 const linked = () => !!localStorage.getItem("mn.linked");
 const haveToken = () => token && tokenExp > Date.now() + 60e3;
 function authUrl(prompt){
   const p = new URLSearchParams({client_id:CONFIG.CLIENT_ID, redirect_uri:location.origin+location.pathname, response_type:"token", scope:CONFIG.SCOPE, include_granted_scopes:"true", state:"mn"});
-  if(prompt) p.set("prompt", prompt); const hint = localStorage.getItem("mn.hint"); if(hint) p.set("login_hint", hint);
+  if(prompt) p.set("prompt", prompt); const hint = localStorage.getItem("mn.hint") || "emc.castaing@gmail.com"; if(hint) p.set("login_hint", hint);
   return "https://accounts.google.com/o/oauth2/v2/auth?" + p;
 }
 function connectDrive(silent){ if(!CONFIG.CLIENT_ID){ toast("La synchro Drive n'est pas encore réglée"); return; } commit(); location.href = authUrl(silent ? "none" : "consent"); }
@@ -257,7 +257,7 @@ function connectDrive(silent){ if(!CONFIG.CLIENT_ID){ toast("La synchro Drive n'
   if(!location.hash.includes("access_token") && !location.hash.includes("error=")) return;
   const h = new URLSearchParams(location.hash.slice(1)); history.replaceState(null, "", location.pathname);
   if(h.get("access_token")){ token=h.get("access_token"); tokenExp=Date.now()+(+h.get("expires_in")||3600)*1000;
-    try{ sessionStorage.setItem("mn.tok", JSON.stringify({tok:token, exp:tokenExp})); localStorage.setItem("mn.linked","1"); }catch(_){} }
+    try{ localStorage.setItem("mn.tok", JSON.stringify({tok:token, exp:tokenExp})); localStorage.setItem("mn.linked","1"); }catch(_){} }
   else if(h.get("error")){ syncErr = "reconnect"; syncErrMsg = "Google : " + h.get("error"); }
 })();
 async function api(path, opt={}){
