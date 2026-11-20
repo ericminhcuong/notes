@@ -336,7 +336,8 @@ async function sync(){
       if(out.length>20) await sleep(60);
     }
     lastSync = Date.now(); syncErr = "";
-    if(changed.length){ renderSide(); if(!(S.main.kind==="note"&&dirty)) { const cur=S.notes[S.main.id]; if(S.main.kind!=="note" || (cur && !cur._new && document.activeElement?.id!=="text")) renderMain(); } }
+    if(changed.length && S.main.kind==="welcome"){ newNote(); renderSide(); if(innerWidth<=520) setPane("list"); }
+    else if(changed.length){ renderSide(); if(!(S.main.kind==="note"&&dirty)) { const cur=S.notes[S.main.id]; if(S.main.kind!=="note" || (cur && !cur._new && document.activeElement?.id!=="text")) renderMain(); } }
   }catch(e){ syncErr = e.message==="auth" ? "reconnect" : "net"; }
   syncing = false; setStatus();
 }
