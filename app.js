@@ -21,7 +21,7 @@ function idb(){ return _db || (_db = new Promise((ok, ko) => {
   r.onupgradeneeded = () => { r.result.createObjectStore("notes", {keyPath:"id"}); r.result.createObjectStore("kv"); };
   r.onsuccess = () => ok(r.result); r.onerror = () => ko(r.error);
 })); }
-async function tx(store, mode, fn){ const d = await idb(); return new Promise((ok, ko) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const res = fn(s); t.oncomplete = () => ok(res && res.result !== undefined ? res.result : res); t.onerror = () => ko(t.error); }); }
+async function tx(store, mode, fn){ const d = await idb(); return new Promise((ok, ko) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const res = fn(s); t.oncomplete = () => ok(res instanceof IDBRequest ? res.result : res); t.onerror = () => ko(t.error); }); }
 const dbAll = () => tx("notes", "readonly", s => s.getAll());
 const dbPut = n => tx("notes", "readwrite", s => s.put(n));
 const dbPutMany = arr => tx("notes", "readwrite", s => arr.forEach(n => s.put(n)));
