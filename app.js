@@ -230,7 +230,8 @@ $("#fileIn").addEventListener("change", async e => {
   status("Lecture du fichier…", "off");
   let d; try{ d = JSON.parse(await f.text()); }catch(_){ toast("Fichier illisible"); setStatus(); return; }
   const have = new Set(live().map(n => n.src).filter(Boolean)), add = [];
-  for(const x of (d.notes||[])){ if(have.has(x.src)) continue;
+  const already = plainNotes().length > 0;   // carnet déjà rempli (par le Drive) : on ne prend que l'archive
+  for(const x of (already ? [] : (d.notes||[]))){ if(have.has(x.src)) continue;
     add.push({id:uid("n"), kind:"note", title:x.title, body:x.body||"", pinned:!!x.pinned, created:x.created||Date.now(), updated:x.updated||Date.now(), src:x.src, dirty:true}); }
   if(d.codes){ const c = special("codes","Codes"); if(!c.body.trim()){ c.body = d.codes; c.updated = Date.now(); c.dirty = true; add.push(c); } }
   if(d.todo){ const t = todoNote(); if(!t.body.trim()){ t.body = d.todo; t.updated = Date.now(); t.dirty = true; add.push(t); } }
