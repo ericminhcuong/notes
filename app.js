@@ -170,6 +170,79 @@ function newNote(){
   const n = {id:uid("n"), kind:"note", title:"", body:"", pinned:false, created:Date.now(), updated:Date.now(), _new:true};
   S.notes[n.id] = n; S.main = {kind:"note", id:n.id}; renderMain(); renderSide(); setPane("main");
 }
+/* ===== Supprimer, annuler, raccourcis clavier, menu clic droit ===== */
+let lastDel = null;
+const visibleIds = () => [...document.querySelectorAll("#side [data-nid]")].map(b => b.dataset.nid);
+function focusItem(id){ const b = id && document.querySelector(`#side [data-nid="${CSS.escape(id)}"]`); if(b){ b.focus({preventScroll:true}); b.scrollIntoView({block:"nearest"}); } }
+function delNote(id){
+  const n = S.notes[id]; if(!n || n.kind!=="note") return;
+  const isCur = S.main.kind==="note" && S.main.id===id;
+  if(isCur){ clearTimeout(commitT); if(dirty){ commit(); } dirty = false; }
+  if(!n.title && !n.body && n._new){ delete S.notes[id]; if(isCur) newNote(); return; }
+  const ids = visibleIds(), i = ids.indexOf(id), next = ids[i+1] || ids[i-1];
+  lastDel = {...n}; delete lastDel._new;
+  if(n._new) delete S.notes[id]; else { n.deleted = true; n.updated = Date.now(); save(n); }
+  if(isCur){ if(next && innerWidth > 520){ S.main = {kind:"note", id:next}; renderMain(); } else { S.main = {kind:"note", id:null}; newNote(); if(innerWidth <= 520) setPane("list"); } }
+  renderSide(); if(isCur && next) focusItem(next);
+  toast("Note supprimée", "Annuler", undoDel, 6000);
+}
+function undoDel(){
+  const c = lastDel; if(!c) return; lastDel = null;
+  let n = S.notes[c.id];
+  if(n){ n.deleted = false; n.updated = c.updated; }
+  else { n = {...c, deleted:false, driveId:null, driveMod:null}; S.notes[n.id] = n; }
+  save(n); show({kind:"note", id:n.id}); focusItem(n.id); toast("Note rétablie");
+}
+function pinNote(id){ const n = S.notes[id]; if(!n || n._new) return; n.pinned = !n.pinned; save(n); renderSide(); if(S.main.id===id) renderMain(); }
+function dupNote(id){ const n = S.notes[id]; if(!n) return; commit();
+  const c = {id:uid("n"), kind:"note", title:(n.title||"Note")+" (copie)", body:n.body||"", pinned:false, created:Date.now(), updated:Date.now()};
+  save(c); show({kind:"note", id:c.id}); }
+function closeMenu(){ const m = $("#ctx"); if(m) m.remove(); }
+function openMenu(x, y, id){
+  closeMenu(); const n = S.notes[id]; if(!n) return;
+  const m = document.createElement("div"); m.id = "ctx"; m.className = "ctx";
+  m.innerHTML = `<button data-m="open">Ouvrir</button><button data-m="pin">${n.pinned?"Désépingler":"Épingler"}</button><button data-m="dup">Dupliquer</button><button data-m="copy">Copier le texte</button><div class="sep"></div><button data-m="del" class="danger">Supprimer</button>`;
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 8) + "px"; m.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+  m.addEventListener("click", ev => { const a = ev.target.closest("[data-m]")?.dataset.m; if(!a) return; ev.stopPropagation(); closeMenu();
+    if(a==="open") show({kind:"note", id});
+    else if(a==="pin") pinNote(id);
+    else if(a==="dup") dupNote(id);
+    else if(a==="copy"){ navigator.clipboard?.writeText(fullText(n)).then(()=>toast("Texte copié"), ()=>toast("Copie impossible")); }
+    else if(a==="del") delNote(id); });
+}
+$("#side").addEventListener("contextmenu", e => { const it = e.target.closest("[data-nid]"); if(!it) return; e.preventDefault(); openMenu(e.clientX, e.clientY, it.dataset.nid); });
+// iPhone : appui long sur une note = même menu
+let lpT = null;
+$("#side").addEventListener("touchstart", e => { const it = e.target.closest("[data-nid]"); if(!it) return; const t = e.touches[0];
+  lpT = setTimeout(() => { lpT = "fired"; openMenu(t.clientX, t.clientY, it.dataset.nid); navigator.vibrate?.(10); }, 550); }, {passive:true});
+["touchend","touchmove","touchcancel"].forEach(ev => $("#side").addEventListener(ev, e => { if(lpT==="fired" && ev==="touchend"){ e.preventDefault(); } if(lpT!=="fired") clearTimeout(lpT); lpT = null; }));
+document.addEventListener("click", e => { if(!e.target.closest("#ctx")) closeMenu(); });
+addEventListener("blur", closeMenu); addEventListener("resize", closeMenu);
+document.addEventListener("keydown", e => {
+  const mod = e.metaKey || e.ctrlKey, k = e.key, kl = (k||"").toLowerCase();
+  const inField = !!e.target.closest?.("textarea, input, [contenteditable=true]");
+  if(k==="Escape" && $("#ctx")){ closeMenu(); return; }
+  if(mod && kl==="n" && (e.altKey || !e.shiftKey)){ e.preventDefault(); newNote(); setTimeout(()=>$("#text")?.focus(), 30); return; }
+  if(mod && kl==="f" && !e.shiftKey){ e.preventDefault(); const q=$("#q"); setPane("list"); q.focus(); q.select(); return; }
+  if(mod && kl==="p" && e.shiftKey){ if(S.main.kind==="note" && S.main.id){ e.preventDefault(); commit(); pinNote(S.main.id); } return; }
+  if(mod && kl==="d" && !inField){ if(S.main.kind==="note" && S.main.id){ e.preventDefault(); dupNote(S.main.id); } return; }
+  if(mod && kl==="z" && !e.shiftKey && !inField && lastDel){ e.preventDefault(); undoDel(); return; }
+  if(inField){
+    if(k==="Escape" && e.target.id==="q"){ e.target.value=""; S.q=""; renderSide(); e.target.blur(); }
+    else if(k==="Escape" && e.target.id==="text"){ e.target.blur(); focusItem(S.main.id); }
+    return; }
+  const item = e.target.closest?.("[data-nid]");
+  const onPage = e.target===document.body || !!e.target.closest?.("#page, #bar");
+  const cur = item ? item.dataset.nid : (onPage && S.main.kind==="note" ? S.main.id : null);
+  if((k==="Backspace" || k==="Delete") && cur && S.notes[cur] && !S.notes[cur]._new){ e.preventDefault(); delNote(cur); return; }
+  if(k==="ArrowDown" || k==="ArrowUp"){ const ids = visibleIds(); if(!ids.length) return; let i = ids.indexOf(cur);
+    i = i<0 ? 0 : Math.max(0, Math.min(ids.length-1, i + (k==="ArrowDown"?1:-1)));
+    e.preventDefault(); if(ids[i]!==S.main.id) show({kind:"note", id:ids[i]}); focusItem(ids[i]); return; }
+  if(k==="Enter" && item && S.notes[cur]){ e.preventDefault(); if(S.main.id!==cur) show({kind:"note", id:cur}); const t=$("#text"); if(t){ t.focus(); t.setSelectionRange(t.value.length, t.value.length); } return; }
+});
+
 const findByTitle = t => { t = t.split("|")[0].split("#")[0].trim().toLowerCase(); return plainNotes().find(n => (n.title||"").toLowerCase() === t); };
 function renderLinks(){
   const el = $("#links"), t = $("#text"); if(!el || !t) return;
@@ -182,8 +255,7 @@ $("#bar").addEventListener("click", e => {
   if(a==="back"){ leaveNote(); if(S.main.kind==="anote"){ S.main={kind:"archive"}; renderMain(); } else { renderSide(); setPane("list"); } return; }
   if(a==="new"){ newNote(); return; }
   if(a==="pin"){ commit(); const n=S.notes[S.main.id]; if(!n || n._new){ toast("Écris d'abord quelque chose"); return; } n.pinned=!n.pinned; save(n); renderMain(); renderSide(); return; }
-  if(a==="del"){ if(!b.dataset.armed){ b.dataset.armed="1"; b.style.color="#d33"; toast("Touche encore pour supprimer"); setTimeout(()=>{ delete b.dataset.armed; b.style.color=""; },2500); return; }
-    const n=S.notes[S.main.id]; dirty=false; if(n){ if(n._new) delete S.notes[n.id]; else { n.deleted=true; n.updated=Date.now(); save(n); } } toast("Note supprimée"); S.main={kind:"note",id:null}; newNote(); return; }
+  if(a==="del"){ delNote(S.main.id); return; }
   if(a==="keep"){ const x=S.archive[S.main.idx]; const n={id:uid("n"), kind:"note", title:x.t||"", body:x.b||"", pinned:false, created:x.u||Date.now(), updated:Date.now()};
     save(n); toast("Copiée dans tes notes"); S.main={kind:"note", id:n.id}; renderMain(); renderSide(); }
 });
@@ -387,7 +459,9 @@ function setStatus(){
   status(pending ? `${pending} à envoyer` : "À jour", pending ? "off" : "");
 }
 
-function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("show"),2000); }
+function toast(t, action, fn, ms){ const el=$("#toast"); el.textContent=t;
+  if(action){ const b=document.createElement("button"); b.className="tbtn"; b.textContent=action; b.onclick=e=>{ e.stopPropagation(); el.classList.remove("show","act"); fn(); }; el.append(" ", b); el.classList.add("act"); } else el.classList.remove("act");
+  el.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("show","act"), ms||2000); }
 
 /* ===== Démarrage ===== */
 (async () => {
